@@ -38,9 +38,7 @@
  */
 
 #include <NewRemoteReceiver.h> 
-#include <RemoteReceiver.h> 
 #include <NewRemoteTransmitter.h> 
-#include <RemoteTransmitter.h> 
 
 // LCD Objekt erstellen
 
@@ -76,6 +74,21 @@
 typedef unsigned int       uint; 
 typedef signed int         sint; 
 
+struct NewCode {
+  unsigned long address;
+  byte unit;
+  boolean groupBit;
+  boolean on;
+};
+
+#define MAX_REC_CODES       8
+
+NewCode recCodeSwitch[MAX_REC_CODES];
+byte recCodeSwitchCnt = 0;
+byte recCodeSwitchIndex = 0;
+byte recCodeSwitchSendIndex = 0;
+byte recCnt = 0;
+byte sendCnt = 0;
 uint captured_time;
 uint previous_captured_time;
 uint captured_period;
@@ -89,8 +102,9 @@ String inputString = "";         // a string to hold incoming data
 boolean previous_period_was_short = false;
 byte packet[25];
 
-double   temprature = 0.0;
+double   temperature = 0.0;
 int      humidity = 0;
+int      channel = 0xff;
 double   windGust = 0.0;
 double   windAvg = 0.0;
 int      uv      = 0;
@@ -98,14 +112,26 @@ double   rain_bucket_tips = 0;
 double   rain_total = 0;
 double   rain_rate = 0;
 
-const char* newSwitchStr = "new";
-const char* oldSwitchStr = "old";
+const char* switchStr = "device";
 
-KaKuTransmitter oldSwitch(11);
+
+#define LED_DEVICE_SEND     7
+#define LED_DEVICE_RECEIVE  6
+#define LED_TEMP            5
+#define LED_RAIN            4
+
+
 void setup()
 {
- 
-  Serial.begin(9600);
+
+  pinMode(LED_DEVICE_SEND, OUTPUT);
+  pinMode(LED_DEVICE_RECEIVE, OUTPUT);
+  pinMode(LED_TEMP, OUTPUT);
+  pinMode(LED_RAIN, OUTPUT);
+
+  NewRemoteReceiver::init(0, 1, recCodeCallback);
+
+  Serial.begin(115200);
   
 
   DDRB = 0x2F;   
@@ -117,11 +143,33 @@ void setup()
   SET_INPUT_CAPTURE_RISING_EDGE();
   TIMSK1 = ( _BV(ICIE1) | _BV(TOIE1) );
 
-  Serial.println("[OS V3 Sensor Capture/Decode]");
+  Serial.println("{info, starting_txrx_firmware}.");
     
   WEATHER_RESET();
 }
 
+// Callback function is called only when a valid code is received.
+void recCodeCallback(NewRemoteCode receivedCode) {
+  // Note: interrupts are disabled. You can re-enable them if needed.
+
+  if(recCodeSwitchCnt >= MAX_REC_CODES)
+  {
+    Serial.println("{error, send_queue_full}.");
+  }
+  else
+  {
+    recCodeSwitch[recCodeSwitchIndex].address = receivedCode.address;
+    recCodeSwitch[recCodeSwitchIndex].unit = receivedCode.unit;
+    recCodeSwitch[recCodeSwitchIndex].groupBit = receivedCode.groupBit;
+    if(receivedCode.switchType == NewRemoteCode::off)
+      recCodeSwitch[recCodeSwitchIndex].on = false;
+    else
+      recCodeSwitch[recCodeSwitchIndex].on = true;
+    recCodeSwitchCnt++;
+    recCnt++;
+    recCodeSwitchIndex = (recCodeSwitchIndex + 1) % MAX_REC_CODES;
+  }
+}
 void loop() 
 {
   char inChar;
@@ -142,11 +190,29 @@ void loop()
     {
     case 0x5F: DecodeTemp(); break;
       //case 0x5B: DecodeUV(); break;
-    case 0x58: DecodeWind(); break;
+      //case 0x58: DecodeWind(); break;
     case 0x54: DecodeRain(); break;
     }
 
     WEATHER_RESET();
+  }
+
+  if(sendCnt != recCnt)
+  {
+    digitalWrite(LED_DEVICE_RECEIVE, HIGH);
+    Serial.print("{device, {action,");
+    Serial.print(recCodeSwitch[recCodeSwitchSendIndex].on);
+    Serial.print("}, {address,");
+    Serial.print(recCodeSwitch[recCodeSwitchSendIndex].address);
+    Serial.print("}, {unit,");
+    Serial.print(recCodeSwitch[recCodeSwitchSendIndex].unit);
+    Serial.print("}, {group_bit,");
+    Serial.print(recCodeSwitch[recCodeSwitchSendIndex].groupBit);
+    Serial.println("}}.");
+    recCodeSwitchSendIndex = (recCodeSwitchSendIndex + 1) % MAX_REC_CODES;
+    recCodeSwitchCnt--;
+    sendCnt++;
+    digitalWrite(LED_DEVICE_RECEIVE, LOW);
   }
 
  
@@ -162,7 +228,7 @@ void loop()
     else if (inChar == '}') 
     {
       if(inputString.length() > 0) {
-	Serial.print("Received = "); Serial.println(inputString);
+	Serial.print("{cmd,"); Serial.print(inputString); Serial.println("}.");
             
 	long time = millis();
 	int commaPosition = inputString.indexOf(',');
@@ -178,26 +244,16 @@ void loop()
 	  commaPosition = inputString.indexOf(',');
 	  String unit = inputString.substring(0, commaPosition);
 
-	  if(cmd.indexOf(oldSwitchStr) != -1) {
-                          
-	    char house[2];
-	    address.toCharArray(house, 2);
-	    if(action.indexOf("on") != -1) {
-	      // send command {old,on,B,2}
-	      oldSwitch.sendSignal(house[0], unit.toInt(), true);
-	    } else {
-	      oldSwitch.sendSignal(house[0], unit.toInt(), false);
-	    }
-                           
-                           
-	  } else if(cmd.indexOf(newSwitchStr) != -1) {
+	  if(cmd.indexOf(switchStr) != -1) {
                           
 	    char tarray[16]; 
 	    address.toCharArray(tarray, address.length()+1);
 
-	    Serial.println(address);
-	    Serial.println(atol(tarray));
+	    // Serial.println(address);
+	    //Serial.println(atol(tarray));
                            
+	    digitalWrite(LED_DEVICE_SEND, HIGH);
+
 	    NewRemoteTransmitter transmitter(atol(tarray), 11, 260, 3);
 	    if(action.indexOf("on") != -1) {
 	      // {new,on,38129658,15}
@@ -205,15 +261,18 @@ void loop()
 	    } else {
 	      transmitter.sendUnit(unit.toInt(), false);
 	    }
-                           
+        
+	    digitalWrite(LED_DEVICE_SEND, LOW);
+                   
 	  }
 
   
 	}
 
 	long diff = millis() - time;
-                
-	Serial.println(diff);
+        Serial.print("{cmd_time,");        
+	Serial.print(diff);
+	Serial.println("}.");
       }
 
       inputString = "";
@@ -225,6 +284,8 @@ void loop()
 
     }
   }
+
+  
 } 
 
 
@@ -314,33 +375,60 @@ ISR(TIMER1_CAPT_vect)
 // CCCC = CRC
 void DecodeTemp()
 {
+  digitalWrite(LED_TEMP, HIGH);
+
   // check the packet CRC
   if (!ValidCRC(16))
   {
-    Serial.println("Temp: CRC Error!");
+    Serial.print("{warning, temp_crc, [");
+    byte test;
+    for (int x = 0; x < 16; x++)
+    {
+      test = GetNibble(x);
+      Serial.print("'");
+      Serial.print(test, HEX);
+      Serial.print("', ");
+    }
+
+    test = GetNibble(16);
+    Serial.print("'");
+    Serial.print(test, HEX);
+    Serial.print("'");
+    
+    Serial.println("]}.");
     return;
   }
     
+  // grab the channel
+  channel = GetNibble(5);
+  
   // grab the temperature
   int whole =  (GetNibble(11) * 10) + GetNibble(10);
   int decimal = (GetNibble(9) * 10) + GetNibble(8);
-  temprature = (decimal * 0.01) + whole;
+  temperature = (decimal * 0.01) + whole;
     
   if (GetNibble(12) == 1)
-    temprature *= -1;
+    temperature *= -1;
         
   // convert Celsius to Fahrenheit 
-  //temprature = ((9.0 / 5.0) * temprature) + 32;
+  //temperature = ((9.0 / 5.0) * temperature) + 32;
         
   // grab the humidity
   humidity = (GetNibble(14) * 10) + GetNibble(13);
    
-    
-  Serial.print("Temp: ");
-  Serial.print( temprature);
-  Serial.print("   Humidity: ");
-  Serial.println(humidity);
-    
+  Serial.print("{temperature, {ch,");
+  Serial.print(channel);
+  Serial.print("},{value,");
+  Serial.print(temperature);
+  Serial.println("}}.");
+
+  Serial.print("{humidity, {ch,");
+  Serial.print(channel);
+  Serial.print("}, {value,");
+  Serial.print(humidity);
+  Serial.println("}}.");
+
+  digitalWrite(LED_TEMP, LOW);
     
 }
 
@@ -421,33 +509,42 @@ void DecodeWind()
 // CCCC = CRC
 void DecodeRain()
 {
+  digitalWrite(LED_RAIN, HIGH);
+
   // check the packet CRC
   if (!ValidCRC(19))
   {
-    Serial.println("Rain: CRC Error!");
-        
+    Serial.print("{warning, rain_crc, [");
+    byte test;
+
     for (int x = 0; x < 19; x++)
     {
-      byte test = GetNibble(x);
-      if((x % 2) == 0) {
-	Serial.print(x);
-	Serial.print(": 0x");
-	Serial.print(test, HEX);
-      }
-      else {
-	Serial.println(test, HEX);
-      }
+      test = GetNibble(x);
+      Serial.print("'");
+      Serial.print(test, HEX);
+      Serial.print("', ");
     }
+
+    test = GetNibble(19);
+    Serial.print("'");
+    Serial.print(test, HEX);
+    Serial.print("'");
+
+    Serial.println("]}.");
     return;
   }
     
+  // grab the channel
+  channel = GetNibble(5);
+  
   double total = 0;
   for (int x = 0; x < 6; x++)
   {
     total = total* 10;
     total += GetNibble(18-x);
   }
-  rain_total = total * .001;
+  //rain_total = total * .001;
+  rain_total = total * .0254;
         
   total = 0;
   for (int x = 0; x < 4; x++)
@@ -455,26 +552,26 @@ void DecodeRain()
     total = total* 10;
     total += GetNibble(12-x);
   }
-  rain_rate = total * .01;
-    
-  rain_bucket_tips = rain_total / .039;
-    
-  Serial.print("Rain total: ");
+  //rain_rate = total * .01;
+
+
+  rain_bucket_tips = total;
+
+  Serial.print("{rain, {ch,");
+  Serial.print(channel);
+  Serial.print("}, {total,");
   Serial.print(rain_total);
-    
-  Serial.print("   rate: ");
-  Serial.print(rain_rate);
-    
-  Serial.print("   tips: ");
-  Serial.println(rain_bucket_tips);
-    
-     
+  Serial.print("}, {tips,");
+  Serial.print(rain_bucket_tips);
+  Serial.println("}}.");
+         
+  digitalWrite(LED_RAIN, LOW);
 }
 
 // CRC = the sum of nibbles 1 to (CRCpos-1);
 bool ValidCRC(int CRCPos)
 {
-  bool ok = false;
+  bool ret = false;
   int start = 1;
   byte check = GetNibble(CRCPos);
   byte crc = 0;
@@ -487,13 +584,9 @@ bool ValidCRC(int CRCPos)
   int tmp = ((byte)(crc) & (byte)(0x0f));
 
   if (tmp == check)
-    ok = true;
-  else {
-    Serial.print(tmp);
-    Serial.print(" ");
-    Serial.print(check);
-  }
-  return ok;
+    ret = true;
+
+  return ret;
 }
 
 // Grab nibbile from packet and reverse it
