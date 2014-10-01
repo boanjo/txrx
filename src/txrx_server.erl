@@ -7,7 +7,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 -export([get_all_devices/0,get_all_temperatures/0,get_all_humidities/0, get_all_raintotals/0]).
--export([get_device/1, get_humidity/1,get_temperature/1, get_raintotal/1]).
+-export([set_device/1, get_device/1, get_humidity/1,get_temperature/1, get_raintotal/1]).
 -export([handle_acc/1]).
 -record(state, {serial, acc_str}).
 start_link() ->
@@ -64,6 +64,12 @@ lookup(Table, Id) ->
 		Ret
     end.
     
+set_device(Id) ->
+    ets:insert(device_table, 
+	       #device{id=Id, 
+		       state=off, 
+		       last_state_change_time=erlang:now()}),    
+    ok.
 
 get_device(Id) ->
     lookup(device_table, Id).
@@ -155,6 +161,13 @@ details({rain, {ch, Channel}, {total, Total}, {tips, _Tips}}) ->
 	       #raintotal{id=130 + Channel, 
 			  value=Total, 
 			  last_update_time=erlang:now()}),    
+    ok;
+
+details({device, {action, Action}, {address, Address}, {unit, Unit}, {group_bit, _GroupBit}}) ->
+    ets:insert(device_table, 
+	       #device{id={Address,Unit}, 
+		       state=Action, 
+		       last_state_change_time=erlang:now()}),    
     ok;
 
 details(_) ->
