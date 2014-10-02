@@ -7,7 +7,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 -export([get_all_devices/0,get_all_temperatures/0,get_all_humidities/0, get_all_raintotals/0]).
--export([set_device/1, get_device/1, get_humidity/1,get_temperature/1, get_raintotal/1]).
+-export([set_device_info/2, device/2, get_humidity/1,get_temperature/1, get_raintotal/1]).
 -export([handle_acc/1]).
 -record(state, {serial, acc_str}).
 start_link() ->
@@ -20,7 +20,7 @@ init([]) ->
     ets:new(humidity_table, [named_table, set, {keypos, #humidity.id}, public]),
     ets:new(raintotal_table, [named_table, set, {keypos, #raintotal.id}, public]),
     ets:new(temperature_table, [named_table, set, {keypos, #temperature.id}, public]),
-    ets:new(device_table, [named_table, set, {keypos, #device.id}, public]),
+    ets:new(device_table, [named_table, set, {keypos, #device.dev_addr}, public]),
 
     Self = self(),
 
@@ -64,15 +64,30 @@ lookup(Table, Id) ->
 		Ret
     end.
     
-set_device(Id) ->
-    ets:insert(device_table, 
-	       #device{id=Id, 
-		       state=off, 
-		       last_state_change_time=erlang:now()}),    
+%% We want to set/update the ID
+set_device_info(DevAddr, Id) ->
+    case lookup(device_table, DevAddr) of
+	not_found ->
+	    ets:insert(device_table, 
+		       #device{dev_addr=DevAddr,
+			       id=Id, 
+			       state=off, 
+			       last_state_change_time=erlang:now()});
+	{device, A, _, State, Time} ->
+	    ets:insert(device_table, 
+		       #device{dev_addr=A,
+			       id=Id, 
+			       state=State, 
+			       last_state_change_time=Time})
+    end,
     ok.
 
-get_device(Id) ->
-    lookup(device_table, Id).
+device(Id, Action) ->
+    [[{Address, Unit}]] = ets:match(device_table, {device, '$1', Id, '_', '_'}),
+    send_to_serial("{device," 
+		   ++ atom_to_list(Action) ++ "," 
+		   ++ integer_to_list(Address) ++ ","
+		   ++ integer_to_list(Unit) ++ "}").
 
 get_temperature(Id) ->
     lookup(temperature_table, Id).
@@ -165,7 +180,7 @@ details({rain, {ch, Channel}, {total, Total}, {tips, _Tips}}) ->
 
 details({device, {action, Action}, {address, Address}, {unit, Unit}, {group_bit, _GroupBit}}) ->
     ets:insert(device_table, 
-	       #device{id={Address,Unit}, 
+	       #device{dev_addr={Address,Unit}, 
 		       state=Action, 
 		       last_state_change_time=erlang:now()}),    
     ok;
