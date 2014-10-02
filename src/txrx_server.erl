@@ -7,7 +7,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 -export([get_all_devices/0,get_all_temperatures/0,get_all_humidities/0, get_all_raintotals/0]).
--export([set_device_info/2, device/2, get_humidity/1,get_temperature/1, get_raintotal/1]).
+-export([set_device_info/2, device/2]).
+-export([get_device/1, get_humidity/1,get_temperature/1, get_raintotal/1]).
 -export([handle_acc/1]).
 -record(state, {serial, acc_str}).
 start_link() ->
@@ -97,6 +98,9 @@ get_humidity(Id) ->
 
 get_raintotal(Id) ->
     lookup(raintotal_table, Id).
+
+get_device(Id) ->
+    lookup(device_table, Id).
 
 send_to_serial(Msg) ->
     gen_server:call(?MODULE, {send, list_to_binary(Msg)}).
