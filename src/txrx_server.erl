@@ -87,8 +87,8 @@ device(Id, Action) ->
     [[{Address, Unit}]] = ets:match(device_table, {device, '$1', Id, '_', '_'}),
     send_to_serial("{device," 
 		   ++ atom_to_list(Action) ++ "," 
-		   ++ integer_to_list(Address) ++ ","
-		   ++ integer_to_list(Unit) ++ "}").
+		   ++ Address ++ ","
+		   ++ Unit ++ "}").
 
 get_temperature(Id) ->
     lookup(temperature_table, Id).
