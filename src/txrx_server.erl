@@ -146,13 +146,11 @@ handle_acc(Acc) ->
 	    NewAcc = string:substr(Acc, Index+2),
 	    io:format("~p ~p: ~p~n ", [erlang:localtime(), ?MODULE, Line]),
 
-	    try erl_scan:string(Line) of
-		{ok, Tokens, _}  ->
-		    {ok, B} = erl_parse:parse_term(Tokens), 
-		    details(B),
-		    handle_acc(NewAcc);
-		_  ->
-		    ok
+	    try 
+		{ok, Tokens, _} = erl_scan:string(Line),
+		{ok, B} = erl_parse:parse_term(Tokens), 
+		details(B),
+		handle_acc(NewAcc)
 	    catch
 		_:_ ->
 		    ok
