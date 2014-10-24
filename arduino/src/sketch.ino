@@ -243,17 +243,17 @@ void loop()
 	  inputString = inputString.substring(commaPosition+1, inputString.length());
 	  commaPosition = inputString.indexOf(',');
 	  String unit = inputString.substring(0, commaPosition);
-
+	  
 	  if(cmd.indexOf(switchStr) != -1) {
-                          
+	    
 	    char tarray[16]; 
 	    address.toCharArray(tarray, address.length()+1);
-
+	    
 	    // Serial.println(address);
 	    //Serial.println(atol(tarray));
-                           
+            
 	    digitalWrite(LED_DEVICE_SEND, HIGH);
-
+	    
 	    NewRemoteTransmitter transmitter(atol(tarray), 11, 260, 3);
 	    if(action.indexOf("on") != -1) {
 	      // {new,on,38129658,15}
@@ -261,14 +261,17 @@ void loop()
 	    } else {
 	      transmitter.sendUnit(unit.toInt(), false);
 	    }
-        
+	    
 	    digitalWrite(LED_DEVICE_SEND, LOW);
-                   
+            
 	  }
-
-  
-	}
-
+	  else {
+	    Serial.println("{error, cmd_received_but_no_device}.");
+	  } 
+	} else {
+	  Serial.println("{error, tuple_received_but_no_commas}.");
+	}	
+	
 	long diff = millis() - time;
         Serial.print("{cmd_time,");        
 	Serial.print(diff);
