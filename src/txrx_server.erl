@@ -6,9 +6,9 @@
 -export([start_link/0, send_to_serial/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
--export([get_all_devices/0,get_all_temperatures/0,get_all_humidities/0, get_all_raintotals/0]).
--export([set_device_info/2, device/2]).
--export([get_device/1, get_humidity/1,get_temperature/1, get_raintotal/1]).
+-export([get_all_devices/0,get_all_sensors/0]).
+-export([set_device_info/3, device/2]).
+-export([get_device/1, get_sensor/1, get_sensor_value/1]).
 -export([handle_acc/1]).
 -record(state, {serial, acc_str}).
 start_link() ->
@@ -18,14 +18,16 @@ init([]) ->
 
     process_flag(trap_exit, true),
 
-    ets:new(humidity_table, [named_table, set, {keypos, #humidity.id}, public]),
-    ets:new(raintotal_table, [named_table, set, {keypos, #raintotal.id}, public]),
-    ets:new(temperature_table, [named_table, set, {keypos, #temperature.id}, public]),
-    ets:new(device_table, [named_table, set, {keypos, #device.dev_addr}, public]),
+    gen_event:start({local, txrx_monitor}),
+    %%gen_event:add_handler(txrx_monitor, txrx_terminal_logger, []),
+    gen_event:add_handler(txrx_monitor, txrx_file_logger, ["log/txrx.txt"]),
+
+    ets:new(sensor_table, [named_table, set, {keypos, #sensor.id}, public]),
+    ets:new(device_table, [named_table, set, {keypos, #device.id}, public]),
 
     Self = self(),
 
-    io:format("Startig ~p pid ~p~n ", [?MODULE, Self]),
+    error_logger:info_msg("Startig ~p pid ~p~n ", [?MODULE, Self]),
 
     Pid = serial:start([{speed,115200},{open,"/dev/ttyACM0"}]),
 
@@ -42,18 +44,8 @@ get_all_devices() ->
     First = ets:first(Table),
     get_next(Table, First, []).
 
-get_all_temperatures() ->
-    Table = temperature_table,
-    First = ets:first(Table),
-    get_next(Table, First, []).
-
-get_all_humidities() ->
-    Table = humidity_table,
-    First = ets:first(Table),
-    get_next(Table, First, []).
-
-get_all_raintotals() ->
-    Table = raintotal_table,
+get_all_sensors() ->
+    Table = sensor_table,
     First = ets:first(Table),
     get_next(Table, First, []).
 
@@ -66,69 +58,85 @@ lookup(Table, Id) ->
     end.
     
 %% We want to set/update the ID
-set_device_info(DevAddr, Id) ->
-    case lookup(device_table, DevAddr) of
-	not_found ->
+set_device_info(Address, Unit, Id) ->
+    case ets:match(device_table, {device, '_', Address, Unit, '$1', '$2'}) of
+	[] ->
 	    ets:insert(device_table, 
-		       #device{dev_addr=DevAddr,
-			       id=Id, 
+		       #device{id=Id,
+			       address=Address,
+			       unit=Unit, 
 			       state=off, 
 			       last_state_change_time=erlang:now()});
-	{device, A, _, State, Time} ->
+	[[State, LastUpdated]] ->
 	    ets:insert(device_table, 
-		       #device{dev_addr=A,
-			       id=Id, 
+		       #device{id=Id,
+			       address=Address,
+			       unit=Unit,
 			       state=State, 
-			       last_state_change_time=Time})
+			       last_state_change_time=LastUpdated})
     end,
     ok.
 
 device(Id, Action) ->
-    [[{Address, Unit}]] = ets:match(device_table, {device, '$1', Id, '_', '_'}),
+    [[Address, Unit]] = ets:match(device_table, {device, Id, '$1', '$2', '_', '_'}),
     send_to_serial("{device," 
 		   ++ atom_to_list(Action) ++ "," 
-		   ++ Address ++ ","
-		   ++ Unit ++ "}").
+		   ++ integer_to_list(Address) ++ ","
+		   ++ integer_to_list(Unit) ++ "}").
 
-get_temperature(Id) ->
-    lookup(temperature_table, Id).
+get_sensor(Id) ->
+    lookup(sensor_table, Id).
 
-get_humidity(Id) ->
-    lookup(humidity_table, Id).
-
-get_raintotal(Id) ->
-    lookup(raintotal_table, Id).
+get_sensor_value(Id) ->
+    Rec = lookup(sensor_table, Id),
+    case Rec of
+	{sensor, Id, Val, _Min, _Max, _Today, _Upd} ->
+	    Val;
+	_ -> not_found
+    end.
 
 get_device(Id) ->
     lookup(device_table, Id).
 
 send_to_serial(Msg) ->
     gen_server:call(?MODULE, {send, list_to_binary(Msg)}).
+
+update_device_state([], _Device) ->
+    ok;
+update_device_state([Head|Tail], Device) ->
+    [Id,Unit] = Head,
+    ets:insert(device_table, Device#device{id=Id, unit=Unit}),
+    update_device_state(Tail, Device).
+
+get_id([]) ->
+    undefined;
+get_id([[Id]]) ->
+    Id.
 			      
 %% callbacks
 
 handle_call({send, Binary}, _From, #state{serial = Pid} = State) ->
-    %%    io:format("Send ~p! ~n", [binary_to_list(Binary)]),
+    %% error_logger:info_msg("Send ~p! ~n", [binary_to_list(Binary)]),
     Pid ! {send, Binary},
     {reply, ok, State};
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
-    io:format("handle_call~n", []),
+    error_logger:info_msg("handle_call~n", []),
     {reply, Reply, State}.
 
 handle_cast(_Msg, State) ->
-    io:format("handle_cast~n", []),
+    error_logger:info_msg("handle_cast~n", []),
     {noreply, State}.
 
 handle_info({data, Data}, State) ->
-    %% io:format("Data=~p~n", [Data]),
+    %% error_logger:info_msg("Data=~p~n", [Data]),
     NewAcc = 
 	handle_acc(State#state.acc_str ++ binary_to_list(Data)),	    
     {noreply, State#state{acc_str=NewAcc}};    
 
 handle_info(Info, State) ->
-    io:format("handle_info ~p~n", [Info]),
+    error_logger:info_msg("handle_info ~p~n", [Info]),
     {noreply, State}.
 
 
@@ -144,8 +152,10 @@ handle_acc(Acc) ->
 	Index ->
 	    Line = string:substr(Acc, 1, Index-1),
 	    NewAcc = string:substr(Acc, Index+2),
-	    io:format("~p ~p: ~p~n ", [erlang:localtime(), ?MODULE, Line]),
-
+	    %%error_logger:info_msg("~p ~p: ~p~n ", [erlang:localtime(), ?MODULE, Line]),
+	    gen_event:notify(txrx_monitor, io_lib:format("~p ~p: ~p~n ", 
+							 [erlang:localtime(), 
+							  ?MODULE, Line])),
 	    try 
 		{ok, Tokens, _} = erl_scan:string(Line),
 		{ok, B} = erl_parse:parse_term(Tokens), 
@@ -153,44 +163,96 @@ handle_acc(Acc) ->
 		handle_acc(NewAcc)
 	    catch
 		_:_ ->
-		    ok
+		    error_logger:error_msg("Incorrect erlang term recd, skipping! ~n", []),
+		    []
 	    end
     end.
 
 
+get_max(not_found, Value, _Date) ->
+    Value;
+get_max({sensor, _Id, _Val, _Prev, _Min, Max, Today, _Upd}, Value, Date) 
+  when Max > Value,  Date == Today ->
+    Max;
+get_max(_, Value, _Date) ->
+    Value.
+
+get_min(not_found, Value, _Date) ->
+    Value;
+get_min({sensor, _Id, _Val, _Prev, Min, _Max, Today, _Upd}, Value, Date) 
+  when Min < Value,  Date == Today ->
+    Min;
+get_min(_, Value, _Date) ->
+    Value.
+
+
+validate_sensor_value(not_found, Value) ->
+    Value;
+validate_sensor_value({sensor, _Id, _Val, Prev, _Min, _Max, _Today, _Upd}, Value) 
+  when (Prev + 1.0) > Value, (Prev - 1.0) < Value ->
+    Value;
+validate_sensor_value({sensor, _Id, Val, _Prev, _Min, _Max, _Today, _Upd}, _Value) ->
+    Val.
+
+
+update_sensor(Id, Value)->
+    Sensor = lookup(sensor_table, Id),
+
+    Date = erlang:date(), 
+
+    ValidatedValue = validate_sensor_value(Sensor, Value),
+    Max = get_max(Sensor, ValidatedValue, Date),
+    Min = get_min(Sensor, ValidatedValue, Date),
+    
+    ets:insert(sensor_table, 
+	       #sensor{id=Id, 
+		       value=ValidatedValue,
+		       prev_value=Value,
+		       min=Min,
+		       max=Max,
+		       today=Date,
+		       last_update_time=erlang:now()}),
+    
+    ok.
+    
+
 details({temperature, {ch, Channel}, {value, Value}}) ->
-    ets:insert(temperature_table, 
-	       #temperature{id=130 + Channel, 
-			    value=Value, 
-			    last_update_time=erlang:now()}),
+    update_sensor(130+Channel, Value),
     ok;
 
 details({humidity, {ch, Channel}, {value, Value}}) ->
-    ets:insert(humidity_table, 
-	       #humidity{id=130 + Channel, 
-			 value=Value, 
-			 last_update_time=erlang:now()}),
+    update_sensor(140+Channel, Value),
+    ok;
+
+details({rain, {ch, Channel}, {total, Value}, {tips, _Tips}}) ->
+    update_sensor(150+Channel, Value),
+    ok;
+
+
+details({device, {action, Action}, {address, Address}, {unit, _Unit}, {group_bit, 1}}) ->
+    %% Get all registered IDs and Units with the same Address
+    MatchList = ets:match(device_table, {device, '$1', Address, '$2', '_', '_'}),
     
+    NewState = #device{address=Address, 
+		       state=Action,
+		       last_state_change_time=erlang:now()},
+    update_device_state(MatchList, NewState),
     ok;
 
-details({rain, {ch, Channel}, {total, Total}, {tips, _Tips}}) ->
-    ets:insert(raintotal_table, 
-	       #raintotal{id=130 + Channel, 
-			  value=Total, 
-			  last_update_time=erlang:now()}),    
-    ok;
-
-details({device, {action, Action}, {address, Address}, {unit, Unit}, {group_bit, _GroupBit}}) ->
-    ets:insert(device_table, 
-	       #device{dev_addr={Address,Unit}, 
-		       state=Action, 
-		       last_state_change_time=erlang:now()}),    
+details({device, {action, Action}, {address, Address}, {unit, Unit}, {group_bit, 0}}) ->
+    %% Should result in a 1 sized list (or 0 if not updated with id)
+    List = ets:match(device_table, {device, '$1', Address, Unit, '_', '_'}),
+    ets:insert(device_table, #device{id=get_id(List),
+				     address=Address, 
+				     unit=Unit,
+				     state=Action,
+				     last_state_change_time=erlang:now()}),
     ok;
 
 details(_) ->
     ok.
 
 terminate(Reason, _State) ->
-    io:format("~p ~p: ~p~n ", [erlang:localtime(), ?MODULE, Reason]),    
+    error_logger:error_msg("~p ~p: ~p~n ", [erlang:localtime(), ?MODULE, Reason]),    
     ok.
     
