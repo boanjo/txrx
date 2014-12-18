@@ -7,6 +7,6 @@ compile:
 	./rebar compile
 
 run:
-	erl -pa ebin/ deps/erlang-serial/ebin/ -eval "application:start(txrx)"
+	erl -pa ebin/ -eval "application:start(txrx)"
 
 
