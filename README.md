@@ -12,4 +12,6 @@ Raspberry PI
 433MHz superhetrodyne transmitter/receive
 LEDs (for visual feedback, so not really needed)
 
-![Schematic of txrx hardware](https://github.com/epkboan/epkboan.github.io/blob/master/txrx_schem.png)
+![Schematic of txrx hardware](https://github.com/epkboan/epkboan.github.io/blob/master/txrx_schem.png?raw=true "Schematic: txrx Hardware")
+
+![Wiring of txrx hardware](https://github.com/epkboan/epkboan.github.io/blob/master/txrx_bb.png?raw=true "Breadboard: txrx Hardware")
