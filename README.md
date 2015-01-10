@@ -29,3 +29,7 @@ Below are some pictures from the prototyping, enjoy!
 
 
 ![Wiring of txrx hardware](https://github.com/epkboan/epkboan.github.io/blob/master/txrx_bb.png?raw=true "Breadboard: txrx Hardware")
+
+### Screenshot of the homeautomation control center
+![ss1](https://github.com/epkboan/epkboan.github.io/blob/master/homeautomation_1.JPG "The control centre")
+
