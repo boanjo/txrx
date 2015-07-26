@@ -546,25 +546,39 @@ void DecodeRain()
   //rain_total = total * .001;
   rain_total = total * .0254;
         
-  total = 0;
+  double rate = 0;
   for (int x = 0; x < 4; x++)
   {
-    total = total* 10;
-    total += GetNibble(12-x);
+    rate = rate* 10;
+    rate += GetNibble(12-x);
   }
   //rain_rate = total * .01;
+  rain_bucket_tips = rate;
 
-
-  rain_bucket_tips = total;
-
-  Serial.print("{rain, {ch,");
-  Serial.print(channel);
-  Serial.print("}, {total,");
-  Serial.print(rain_total);
-  Serial.print("}, {tips,");
-  Serial.print(rain_bucket_tips);
-  Serial.println("}}.");
-         
+  // The rate is just number of raw bucket tips
+  // total rain is reported as 0.001" and one tip is 0.01"
+  // I.e. we can check the rate * 10 and compare with total
+  // for extra safety 
+  if((rate * 10) == total)
+  {
+    Serial.print("{rain, {ch,");
+    Serial.print(channel);
+    Serial.print("}, {total,");
+    Serial.print(rain_total);
+    Serial.print("}, {tips,");
+    Serial.print(rain_bucket_tips);
+    Serial.println("}}.");
+  }
+  else
+  {
+    Serial.print("{warning, rain_value_error, {ch,");
+    Serial.print(channel);
+    Serial.print("}, {total,");
+    Serial.print(rain_total);
+    Serial.print("}, {tips,");
+    Serial.print(rain_bucket_tips);
+    Serial.println("}}.");
+  }
   digitalWrite(LED_RAIN, LOW);
 }
 
