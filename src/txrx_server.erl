@@ -269,6 +269,12 @@ details({rain, {ch, Channel}, {total, Value}, {tips, _Tips}}) ->
     update_sensor(150+Channel, Value),
     ok;
 
+details({wind, {ch, Channel}, {gust, Gust}, {avg, Average}, {wind_dir, Dir}}) ->
+    update_sensor(160+Channel, Gust),
+    update_sensor(170+Channel, Average),
+    update_sensor(180+Channel, Dir),
+    ok;
+
 
 details({device, {action, Action}, {address, Address}, {unit, _Unit}, {group_bit, 1}}) ->
     %% Get all registered IDs and Units with the same Address

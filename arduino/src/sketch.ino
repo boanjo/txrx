@@ -190,7 +190,7 @@ void loop()
     {
     case 0x5F: DecodeTemp(); break;
       //case 0x5B: DecodeUV(); break;
-      //case 0x58: DecodeWind(); break;
+    case 0x58: DecodeWind(); break;
     case 0x54: DecodeRain(); break;
     }
 
@@ -472,6 +472,9 @@ void DecodeWind()
     Serial.println("Wind: CRC Error!");
     return;
   }
+
+  // grab the channel
+  channel = GetNibble(5);
     
   // Wind Direction
   int wind_dir = GetNibble(9);
@@ -485,18 +488,19 @@ void DecodeWind()
   // Convert meter per sec to MPH
   windGust = windGust * 2.23693181818;
   windAvg = windAvg * 2.23693181818;    
-    
-  Serial.print("Wind Gust: ");
+
+
+  Serial.print("{wind, {ch,");
+  Serial.print(channel);
+  Serial.print("}, {gust,");
   Serial.print(windGust);
-    
-  Serial.print("    Wind Avg: ");
+  Serial.print("}, {avg,");
   Serial.print(windAvg);
-    
-  Serial.print("    Dir: ");
-  Serial.println(windDir[wind_dir]);
-    
-    
-    
+  Serial.print("}, {dir,");
+  Serial.print(wind_dir);
+  Serial.println("}}.");
+  
+        
 }
 
 // PCR800 Rain Guage
@@ -554,6 +558,11 @@ void DecodeRain()
   }
   //rain_rate = total * .01;
   rain_bucket_tips = rate;
+
+
+  // Fix to the rain sensor type problem
+  total = rate * 10;
+
 
   // The rate is just number of raw bucket tips
   // total rain is reported as 0.001" and one tip is 0.01"
