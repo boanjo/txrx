@@ -466,10 +466,27 @@ void DecodeUV()
 const char windDir[16][4] = {  "N  ", "NNE", "NE ", "ENE",  "E  ", "ESE", "SE ", "SSE",  "S  ", "SSW", "SW ", "WSW",  "W  ", "WNW", "NW ", "NNW"};
 void DecodeWind()
 {
+
   // check the packet CRC
   if (!ValidCRC(18))
   {
-    Serial.println("Wind: CRC Error!");
+    Serial.print("{warning, wind_crc, [");
+    byte test;
+
+    for (int x = 0; x < 18; x++)
+    {
+      test = GetNibble(x);
+      Serial.print("'");
+      Serial.print(test, HEX);
+      Serial.print("', ");
+    }
+
+    test = GetNibble(18);
+    Serial.print("'");
+    Serial.print(test, HEX);
+    Serial.print("'");
+
+    Serial.println("]}.");
     return;
   }
 
