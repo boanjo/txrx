@@ -576,11 +576,6 @@ void DecodeRain()
   //rain_rate = total * .01;
   rain_bucket_tips = rate;
 
-
-  // Fix to the rain sensor type problem
-  total = rate * 10;
-
-
   // The rate is just number of raw bucket tips
   // total rain is reported as 0.001" and one tip is 0.01"
   // I.e. we can check the rate * 10 and compare with total
