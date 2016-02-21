@@ -29,12 +29,23 @@ init([]) ->
     Self = self(),
 
     error_logger:info_msg("Startig ~p pid ~p~n ", [?MODULE, Self]),
+    PrioList = ["/dev/ttyACM0","/dev/ttyUSB0",
+		"/dev/ttyACM1","/dev/ttyUSB1"],
+    Port = get_first_available_port(PrioList),
+    error_logger:info_msg("Selected Port ~p~n ", [Port]),
+    Pid = serial:start([{speed,115200},{open, Port}]),
 
-    Pid = serial:start([{speed,115200},{open,"/dev/ttyACM0"}]),
-
-    gen_server:cast(?MODULE, {start_watchdog, 30}),
+    %%gen_server:cast(?MODULE, {start_watchdog, 30}),
     {ok, #state{serial = Pid, acc_str = [], wd_recd=true}}.
 
+get_first_available_port([]) ->
+    error_logger:error_msg("No Serial Port found~n ", []),
+    "/dev/ttyACM0";
+get_first_available_port([Port|List]) ->
+    case file:read_file_info(Port) of
+	{ok, _}-> Port;
+	_ -> get_first_available_port(List)
+    end.
 
 log_terminal(on) ->
     gen_event:add_handler(txrx_monitor, txrx_terminal_logger, []);
