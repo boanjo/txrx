@@ -241,12 +241,19 @@ validate_sensor_value({sensor, _Id, Val, _Prev, _Min, _Max, _Today, _Upd}, _Valu
     Val.
 
 
-update_sensor(Id, Value)->
+update_sensor(Id, Value, Validate)->
     Sensor = lookup(sensor_table, Id),
 
     Date = erlang:date(), 
 
-    ValidatedValue = validate_sensor_value(Sensor, Value),
+    ValidatedValue = 
+	case Validate of
+	    true ->
+		validate_sensor_value(Sensor, Value);
+	    _ ->
+		Value
+	end,
+
     Max = get_max(Sensor, ValidatedValue, Date),
     Min = get_min(Sensor, ValidatedValue, Date),
     
@@ -260,6 +267,7 @@ update_sensor(Id, Value)->
 		       last_update_time=erlang:now()}),
     
     ok.
+
     
 
 watchdog({cmd,watchdog}, _Wd) ->
@@ -269,21 +277,21 @@ watchdog(_, Wd) ->
     Wd.
 
 details({temperature, {ch, Channel}, {value, Value}}) ->
-    update_sensor(130+Channel, Value),
+    update_sensor(130+Channel, Value, true),
     ok;
 
 details({humidity, {ch, Channel}, {value, Value}}) ->
-    update_sensor(140+Channel, Value),
+    update_sensor(140+Channel, Value, true),
     ok;
 
 details({rain, {ch, Channel}, {total, Value}, {tips, _Tips}}) ->
-    update_sensor(150+Channel, Value),
+    update_sensor(150+Channel, Value, true),
     ok;
 
 details({wind, {ch, Channel}, {gust, Gust}, {avg, Average}, {dir, Dir}}) ->
-    update_sensor(160+Channel, Gust),
-    update_sensor(170+Channel, Average),
-    update_sensor(180+Channel, Dir),
+    update_sensor(160+Channel, Gust, false),
+    update_sensor(170+Channel, Average, false),
+    update_sensor(180+Channel, Dir, false),
     ok;
 
 
