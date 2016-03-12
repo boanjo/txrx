@@ -29,12 +29,23 @@ init([]) ->
     Self = self(),
 
     error_logger:info_msg("Startig ~p pid ~p~n ", [?MODULE, Self]),
+    PrioList = ["/dev/ttyACM0","/dev/ttyUSB0",
+		"/dev/ttyACM1","/dev/ttyUSB1"],
+    Port = get_first_available_port(PrioList),
+    error_logger:info_msg("Selected Port ~p~n ", [Port]),
+    Pid = serial:start([{speed,115200},{open, Port}]),
 
-    Pid = serial:start([{speed,115200},{open,"/dev/ttyACM0"}]),
-
-    gen_server:cast(?MODULE, {start_watchdog, 30}),
+    %%gen_server:cast(?MODULE, {start_watchdog, 30}),
     {ok, #state{serial = Pid, acc_str = [], wd_recd=true}}.
 
+get_first_available_port([]) ->
+    error_logger:error_msg("No Serial Port found~n ", []),
+    "/dev/ttyACM0";
+get_first_available_port([Port|List]) ->
+    case file:read_file_info(Port) of
+	{ok, _}-> Port;
+	_ -> get_first_available_port(List)
+    end.
 
 log_terminal(on) ->
     gen_event:add_handler(txrx_monitor, txrx_terminal_logger, []);
@@ -230,12 +241,19 @@ validate_sensor_value({sensor, _Id, Val, _Prev, _Min, _Max, _Today, _Battery, _U
     Val.
 
 
-update_sensor(Id, Value, Battery)->
+update_sensor(Id, Value, Battery, Validate)->
     Sensor = lookup(sensor_table, Id),
 
     Date = erlang:date(), 
 
-    ValidatedValue = validate_sensor_value(Sensor, Value),
+    ValidatedValue = 
+	case Validate of
+	    true ->
+		validate_sensor_value(Sensor, Value);
+	    _ ->
+		Value
+	end,
+
     Max = get_max(Sensor, ValidatedValue, Date),
     Min = get_min(Sensor, ValidatedValue, Date),
     
@@ -250,6 +268,7 @@ update_sensor(Id, Value, Battery)->
 		       last_update_time=erlang:now()}),
     
     ok.
+
     
 
 watchdog({cmd,watchdog}, _Wd) ->
@@ -259,21 +278,21 @@ watchdog(_, Wd) ->
     Wd.
 
 details({temperature, {ch, Channel}, {value, Value}, {battery, Battery}}) ->
-    update_sensor(130+Channel, Value, Battery),
+    update_sensor(130+Channel, Value, Battery, true),
     ok;
 
 details({humidity, {ch, Channel}, {value, Value}, {battery, Battery}}) ->
-    update_sensor(140+Channel, Value, Battery),
+    update_sensor(140+Channel, Value, Battery, true),
     ok;
 
 details({rain, {ch, Channel}, {total, Value}, {tips, _Tips}, {battery, Battery}}) ->
-    update_sensor(150+Channel, Value, Battery),
+    update_sensor(150+Channel, Value, Battery, true),
     ok;
 
 details({wind, {ch, Channel}, {gust, Gust}, {avg, Average}, {dir, Dir}, {battery, Battery}}) ->
-    update_sensor(160+Channel, Gust, Battery),
-    update_sensor(170+Channel, Average, Battery),
-    update_sensor(180+Channel, Dir, Battery),
+    update_sensor(160+Channel, Gust, Battery, false),
+    update_sensor(170+Channel, Average, Battery, false),
+    update_sensor(180+Channel, Dir, Battery, false),
     ok;
 
 
