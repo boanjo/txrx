@@ -1,42 +1,3 @@
-
-//
-// Daten von Oregon Scientific Weather Station (www.arduino-praxis.ch)
-// Anzeige auf Nokia LCD
-// Datei: project_oregon_wetterstation_anzeige.ino
-// Datum: 18.08.12
-
-// Anpassungen
-// LED Status auf PortB Pin1 (D09)
-// 
-// Anschlüsse Arduino
-// -------------------
-// D09: LED Empfang
-// D08: Data von RF433 Receiver
-// D07: Display CE (CS)
-// D06: Display RST
-// D05: Display DC
-// D04: Display DIN
-// D03: Display CLK
-
-
-
-/***
- * Arduino Oregon Scientific V3 Sensor receiver v0.3
- * Updates: http://www.lostbyte.com/Arduino-OSV3
- * Contact: brian@lostbyte.com
- * 
- * Receives and decodes 433.92MHz signals sent from the Oregon Scientific
- * V3 sensors: THGN801 (Temp/Humid), PCR800 (Rain), WGR800 (Wind), UVN800 (UV)
- * For more info: http://lostbyte.com/Arduino-OSV3
- *
- * Hardware based on the Practical Arduino Weather Station Receiver project
- * http://www.practicalarduino.com/projects/weather-station-receiver
- * 
- * Special thanks to Kayne Richens and his ThermorWeatherRx code.  
- * http://github.com/kayno/ThermorWeatherRx
- *
- */
-
 #include <NewRemoteReceiver.h> 
 #include <NewRemoteTransmitter.h> 
 
@@ -105,6 +66,8 @@ byte packet[25];
 double   temperature = 0.0;
 int      humidity = 0;
 int      channel = 0xff;
+int      flags = 0xff;
+int      battery = 0xff;
 double   windGust = 0.0;
 double   windAvg = 0.0;
 int      uv      = 0;
@@ -398,10 +361,13 @@ void DecodeTemp()
     Serial.println("]}.");
     return;
   }
-    
+
   // grab the channel
   channel = GetNibble(5);
-  
+ 
+  // grab the Flags to check battery bit (0x4 == BAD)
+  flags = GetNibble(8);
+ 
   // grab the temperature
   int whole =  (GetNibble(11) * 10) + GetNibble(10);
   int decimal = (GetNibble(9) * 10) + GetNibble(8);
@@ -420,12 +386,22 @@ void DecodeTemp()
   Serial.print(channel);
   Serial.print("},{value,");
   Serial.print(temperature);
+  Serial.print("},{battery,");
+  if((flags & 0x4) == 0x4)
+    Serial.print("low");
+  else 
+    Serial.print("good");
   Serial.println("}}.");
 
   Serial.print("{humidity, {ch,");
   Serial.print(channel);
   Serial.print("}, {value,");
   Serial.print(humidity);
+  Serial.print("},{battery,");
+  if((flags & 0x4) == 0x4)
+    Serial.print("low");
+  else 
+    Serial.print("good");
   Serial.println("}}.");
 
   digitalWrite(LED_TEMP, LOW);
@@ -493,6 +469,9 @@ void DecodeWind()
   // grab the channel
   channel = GetNibble(5);
     
+  // grab the Flags to check battery bit (0x4 == BAD)
+  flags = GetNibble(8);
+ 
   // Wind Direction
   int wind_dir = GetNibble(9);
     
@@ -515,6 +494,11 @@ void DecodeWind()
   Serial.print(windAvg);
   Serial.print("}, {dir,");
   Serial.print(wind_dir);
+  Serial.print("},{battery,");
+  if((flags & 0x4) == 0x4)
+    Serial.print("low");
+  else 
+    Serial.print("good");
   Serial.println("}}.");
   
         
@@ -558,6 +542,17 @@ void DecodeRain()
   // grab the channel
   channel = GetNibble(5);
   
+  // grab the Flags to check battery bit (0x4 == BAD)
+  flags = GetNibble(8);
+ 
+  // Check bit 0x8 which is normally low. Then the rolling code nibbles are 
+  // replaced with a high resolution battery indicator (0-100%)
+  if((flags & 0x8) == 0x8) {
+    battery = GetNibble(6);
+    battery = battery << 4;
+    battery |= GetNibble(7);
+  }
+
   double total = 0;
   for (int x = 0; x < 6; x++)
   {
@@ -576,11 +571,6 @@ void DecodeRain()
   //rain_rate = total * .01;
   rain_bucket_tips = rate;
 
-
-  // Fix to the rain sensor type problem
-  total = rate * 10;
-
-
   // The rate is just number of raw bucket tips
   // total rain is reported as 0.001" and one tip is 0.01"
   // I.e. we can check the rate * 10 and compare with total
@@ -593,6 +583,8 @@ void DecodeRain()
     Serial.print(rain_total);
     Serial.print("}, {tips,");
     Serial.print(rain_bucket_tips);
+    Serial.print("},{battery,");
+    Serial.print(battery);
     Serial.println("}}.");
   }
   else
@@ -600,9 +592,11 @@ void DecodeRain()
     Serial.print("{warning, rain_value_error, {ch,");
     Serial.print(channel);
     Serial.print("}, {total,");
-    Serial.print(rain_total);
-    Serial.print("}, {tips,");
-    Serial.print(rain_bucket_tips);
+    Serial.print(total);
+    Serial.print("}, {rate,");
+    Serial.print(rate);
+    Serial.print("},{battery,");
+    Serial.print(battery);
     Serial.println("}}.");
   }
   digitalWrite(LED_RAIN, LOW);

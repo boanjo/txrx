@@ -103,7 +103,7 @@ get_sensor(Id) ->
 get_sensor_value(Id) ->
     Rec = lookup(sensor_table, Id),
     case Rec of
-	{sensor, Id, Val, _Min, _Max, _Today, _Upd} ->
+	{sensor, Id, Val, _Min, _Max, _Today, _Battery, _Upd} ->
 	    Val;
 	_ -> not_found
     end.
@@ -206,7 +206,7 @@ handle_acc(Acc, Wd) ->
 
 get_max(not_found, Value, _Date) ->
     Value;
-get_max({sensor, _Id, _Val, _Prev, _Min, Max, Today, _Upd}, Value, Date) 
+get_max({sensor, _Id, _Val, _Prev, _Min, Max, Today, _Battery,_Upd}, Value, Date) 
   when Max > Value,  Date == Today ->
     Max;
 get_max(_, Value, _Date) ->
@@ -214,7 +214,7 @@ get_max(_, Value, _Date) ->
 
 get_min(not_found, Value, _Date) ->
     Value;
-get_min({sensor, _Id, _Val, _Prev, Min, _Max, Today, _Upd}, Value, Date) 
+get_min({sensor, _Id, _Val, _Prev, Min, _Max, Today, _Battery, _Upd}, Value, Date) 
   when Min < Value,  Date == Today ->
     Min;
 get_min(_, Value, _Date) ->
@@ -223,14 +223,14 @@ get_min(_, Value, _Date) ->
 
 validate_sensor_value(not_found, Value) ->
     Value;
-validate_sensor_value({sensor, _Id, _Val, Prev, _Min, _Max, _Today, _Upd}, Value) 
+validate_sensor_value({sensor, _Id, _Val, Prev, _Min, _Max, _Today, _Battery, _Upd}, Value) 
   when (Prev + 1.0) > Value, (Prev - 1.0) < Value ->
     Value;
-validate_sensor_value({sensor, _Id, Val, _Prev, _Min, _Max, _Today, _Upd}, _Value) ->
+validate_sensor_value({sensor, _Id, Val, _Prev, _Min, _Max, _Today, _Battery, _Upd}, _Value) ->
     Val.
 
 
-update_sensor(Id, Value)->
+update_sensor(Id, Value, Battery)->
     Sensor = lookup(sensor_table, Id),
 
     Date = erlang:date(), 
@@ -246,6 +246,7 @@ update_sensor(Id, Value)->
 		       min=Min,
 		       max=Max,
 		       today=Date,
+		       battery=Battery,
 		       last_update_time=erlang:now()}),
     
     ok.
@@ -257,22 +258,22 @@ watchdog({cmd,watchdog}, _Wd) ->
 watchdog(_, Wd) ->
     Wd.
 
-details({temperature, {ch, Channel}, {value, Value}}) ->
-    update_sensor(130+Channel, Value),
+details({temperature, {ch, Channel}, {value, Value}, {battery, Battery}}) ->
+    update_sensor(130+Channel, Value, Battery),
     ok;
 
-details({humidity, {ch, Channel}, {value, Value}}) ->
-    update_sensor(140+Channel, Value),
+details({humidity, {ch, Channel}, {value, Value}, {battery, Battery}}) ->
+    update_sensor(140+Channel, Value, Battery),
     ok;
 
-details({rain, {ch, Channel}, {total, Value}, {tips, _Tips}}) ->
-    update_sensor(150+Channel, Value),
+details({rain, {ch, Channel}, {total, Value}, {tips, _Tips}, {battery, Battery}}) ->
+    update_sensor(150+Channel, Value, Battery),
     ok;
 
-details({wind, {ch, Channel}, {gust, Gust}, {avg, Average}, {dir, Dir}}) ->
-    update_sensor(160+Channel, Gust),
-    update_sensor(170+Channel, Average),
-    update_sensor(180+Channel, Dir),
+details({wind, {ch, Channel}, {gust, Gust}, {avg, Average}, {dir, Dir}, {battery, Battery}}) ->
+    update_sensor(160+Channel, Gust, Battery),
+    update_sensor(170+Channel, Average, Battery),
+    update_sensor(180+Channel, Dir, Battery),
     ok;
 
 
