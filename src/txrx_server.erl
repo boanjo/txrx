@@ -11,6 +11,7 @@
 -export([set_device_info/3, device/2]).
 -export([get_device/1, get_sensor/1, get_sensor_value/1]).
 -export([reset_serial/0]).
+-export([tab2file/0]).
 -record(state, {serial, acc_str, sensor_cnt}).
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -23,9 +24,22 @@ init([]) ->
 
     log_terminal(on),
     %%log_file(on, "log/txrx.txt"),
+
+    DetsSensorFile = "etc/sensor.txt",
+    case filelib:is_regular(DetsSensorFile)  of
+	false ->
+	    ets:new(sensor_table, [named_table, set, {keypos, #sensor.id}, public]);
+	true ->
+	    file2tab(DetsSensorFile)
+    end,
     
-    ets:new(sensor_table, [named_table, set, {keypos, #sensor.id}, public]),
-    ets:new(device_table, [named_table, set, {keypos, #device.id}, public]),
+    DetsDeviceFile = "etc/device.txt",
+    case filelib:is_regular(DetsDeviceFile) of
+	false ->
+	    ets:new(device_table, [named_table, set, {keypos, #device.id}, public]);
+	true ->
+	    file2tab(DetsDeviceFile)
+    end,
 
     Self = self(),
 
@@ -36,6 +50,16 @@ init([]) ->
 
     gen_server:cast(?MODULE, {start_watchdog, 300}),
     {ok, #state{serial = Pid, acc_str = [], sensor_cnt=0}}.
+
+
+file2tab(File) ->
+    case ets:file2tab(File) of
+	{ok, Tab} ->
+	    error_logger:info_msg("Table read ~p~n ", [Tab]);
+	{error, Reason} ->
+	    error_logger:error_msg("Table read ~p~n ", [Reason])
+    end.
+
 
 get_serial_port_prio_list() ->
     ["/dev/ttyACM0","/dev/ttyUSB0",
@@ -50,6 +74,9 @@ get_first_available_port([Port|List]) ->
 	_ -> get_first_available_port(List)
     end.
 
+tab2file() ->
+    ets:tab2file(sensor_table, "etc/sensor.txt"),
+    ets:tab2file(device_table, "etc/device.txt").
 
 
 log_terminal(on) ->
