@@ -10,7 +10,8 @@
 -export([get_all_devices/0,get_all_sensors/0]).
 -export([set_device_info/3, device/2]).
 -export([get_device/1, get_sensor/1, get_sensor_value/1]).
--record(state, {serial, acc_str, wd_recd}).
+-export([reset_serial/0]).
+-record(state, {serial, acc_str, sensor_cnt}).
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -29,14 +30,16 @@ init([]) ->
     Self = self(),
 
     error_logger:info_msg("Startig ~p pid ~p~n ", [?MODULE, Self]),
-    PrioList = ["/dev/ttyACM0","/dev/ttyUSB0",
-		"/dev/ttyACM1","/dev/ttyUSB1"],
-    Port = get_first_available_port(PrioList),
+    Port = get_first_available_port(get_serial_port_prio_list()),
     error_logger:info_msg("Selected Port ~p~n ", [Port]),
     Pid = serial:start([{speed,115200},{open, Port}]),
 
-    %%gen_server:cast(?MODULE, {start_watchdog, 30}),
-    {ok, #state{serial = Pid, acc_str = [], wd_recd=true}}.
+    gen_server:cast(?MODULE, {start_watchdog, 300}),
+    {ok, #state{serial = Pid, acc_str = [], sensor_cnt=0}}.
+
+get_serial_port_prio_list() ->
+    ["/dev/ttyACM0","/dev/ttyUSB0",
+     "/dev/ttyACM1","/dev/ttyUSB1"].
 
 get_first_available_port([]) ->
     error_logger:error_msg("No Serial Port found~n ", []),
@@ -46,6 +49,8 @@ get_first_available_port([Port|List]) ->
 	{ok, _}-> Port;
 	_ -> get_first_available_port(List)
     end.
+
+
 
 log_terminal(on) ->
     gen_event:add_handler(txrx_monitor, txrx_terminal_logger, []);
@@ -136,14 +141,23 @@ get_id([]) ->
     undefined;
 get_id([[Id]]) ->
     Id.
-	
-check_serial(true, Pid) ->
-    Pid;
 
-check_serial(false, Pid) ->
+reset_serial() ->
+    gen_server:call(?MODULE, {reset_serial}).
+
+	
+
+check_serial(0, Pid) ->
     exit(Pid, kill),
-    NewPid = serial:start([{speed,115200},{open,"/dev/ttyACM0"}]),
-    NewPid.
+
+    Port = get_first_available_port(get_serial_port_prio_list()),
+    error_logger:info_msg("Watchdog elapsed and no sensors heard... Reset! Selected Port ~p~n ", [Port]),
+
+    NewPid = serial:start([{speed,115200},{open, Port}]),
+    NewPid;
+
+check_serial(_, Pid) ->
+    Pid.
 		      
 %% callbacks
 
@@ -152,6 +166,12 @@ handle_call({send, Binary}, _From, #state{serial = Pid} = State) ->
     Pid ! {send, Binary},
     {reply, ok, State};
 
+handle_call({reset_serial}, _From, #state{serial = Pid, acc_str = Str, sensor_cnt = _Cnt}) ->
+
+    NewPid = check_serial(0, Pid),
+    NewState = #state{serial = NewPid, acc_str = Str, sensor_cnt = 0},
+    {reply, ok, NewState};
+
 handle_call(_Request, _From, State) ->
     Reply = ok,
     error_logger:info_msg("handle_call~n", []),
@@ -159,7 +179,7 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({start_watchdog, Secs}, State) ->
     timer:send_after(Secs*1000, self(), {watchdog_timeout, Secs}),
-    error_logger:info_msg("Starting wd ~n", []),
+    error_logger:info_msg("Starting wd ~p~n", [Secs]),
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -168,16 +188,15 @@ handle_cast(_Msg, State) ->
 
 handle_info({data, Data}, State) ->
     %% error_logger:info_msg("Data=~p~n", [Data]),
-    {NewAcc, NewWd} = 
-	handle_acc(State#state.acc_str ++ binary_to_list(Data), State#state.wd_recd),	    
-    {noreply, State#state{acc_str=NewAcc, wd_recd=NewWd}};    
+    {NewAcc, NewCnt} = 
+	handle_acc(State#state.acc_str ++ binary_to_list(Data), State#state.sensor_cnt),	    
+    {noreply, State#state{acc_str=NewAcc, sensor_cnt=NewCnt}};    
 
-handle_info({watchdog_timeout, Secs}, #state{serial = Pid, acc_str = Str, wd_recd = Wd}) ->
-    NewPid = check_serial(Wd, Pid),
+handle_info({watchdog_timeout, Secs}, #state{serial = Pid, acc_str = Str, sensor_cnt = Cnt}) ->
+    NewPid = check_serial(Cnt, Pid),
     timer:send_after(Secs*1000, self(), {watchdog_timeout, Secs}),
     
-    NewPid ! {send, list_to_binary("{watchdog}.")},
-    NewState = #state{serial = NewPid, acc_str = Str, wd_recd = false},
+    NewState = #state{serial = NewPid, acc_str = Str, sensor_cnt = 0},
     {noreply, NewState};
 
 handle_info(Info, State) ->
@@ -190,10 +209,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-handle_acc(Acc, Wd) ->
+handle_acc(Acc, Cnt) ->
     case string:str(Acc, "\r\n") of
 	0 -> 
-	    {Acc, Wd};
+	    {Acc, Cnt};
 	Index ->
 	    Line = string:substr(Acc, 1, Index-1),
 	    NewAcc = string:substr(Acc, Index+2),
@@ -204,13 +223,12 @@ handle_acc(Acc, Wd) ->
 	    try 
 		{ok, Tokens, _} = erl_scan:string(Line),
 		{ok, B} = erl_parse:parse_term(Tokens), 
-		NewWd = watchdog(B, Wd),
-		details(B),
-		handle_acc(NewAcc, NewWd)
+		NewCnt = details(B, Cnt),
+		handle_acc(NewAcc, NewCnt)
 	    catch
 		_:_ ->
 		    error_logger:error_msg("Incorrect erlang term recd, skipping! ~n", []),
-		    {[], Wd}
+		    {[], Cnt}
 	    end
     end.
 
@@ -271,32 +289,26 @@ update_sensor(Id, Value, Battery, Validate)->
 
     
 
-watchdog({cmd,watchdog}, _Wd) ->
-    true;
-
-watchdog(_, Wd) ->
-    Wd.
-
-details({temperature, {ch, Channel}, {value, Value}, {battery, Battery}}) ->
+details({temperature, {ch, Channel}, {value, Value}, {battery, Battery}}, Cnt) ->
     update_sensor(130+Channel, Value, Battery, true),
-    ok;
+    Cnt + 1;
 
-details({humidity, {ch, Channel}, {value, Value}, {battery, Battery}}) ->
+details({humidity, {ch, Channel}, {value, Value}, {battery, Battery}}, Cnt) ->
     update_sensor(140+Channel, Value, Battery, true),
-    ok;
+    Cnt + 1;
 
-details({rain, {ch, Channel}, {total, Value}, {tips, _Tips}, {battery, Battery}}) ->
+details({rain, {ch, Channel}, {total, Value}, {tips, _Tips}, {battery, Battery}}, Cnt) ->
     update_sensor(150+Channel, Value, Battery, true),
-    ok;
+    Cnt + 1;
 
-details({wind, {ch, Channel}, {gust, Gust}, {avg, Average}, {dir, Dir}, {battery, Battery}}) ->
+details({wind, {ch, Channel}, {gust, Gust}, {avg, Average}, {dir, Dir}, {battery, Battery}}, Cnt) ->
     update_sensor(160+Channel, Gust, Battery, false),
     update_sensor(170+Channel, Average, Battery, false),
     update_sensor(180+Channel, Dir, Battery, false),
-    ok;
+    Cnt + 1;
 
 
-details({device, {action, Action}, {address, Address}, {unit, _Unit}, {group_bit, 1}}) ->
+details({device, {action, Action}, {address, Address}, {unit, _Unit}, {group_bit, 1}}, Cnt) ->
     %% Get all registered IDs and Units with the same Address
     MatchList = ets:match(device_table, {device, '$1', Address, '$2', '_', '_'}),
     
@@ -304,9 +316,9 @@ details({device, {action, Action}, {address, Address}, {unit, _Unit}, {group_bit
 		       state=Action,
 		       last_state_change_time=erlang:now()},
     update_device_state(MatchList, NewState),
-    ok;
+    Cnt + 1;
 
-details({device, {action, Action}, {address, Address}, {unit, Unit}, {group_bit, 0}}) ->
+details({device, {action, Action}, {address, Address}, {unit, Unit}, {group_bit, 0}}, Cnt) ->
     %% Should result in a 1 sized list (or 0 if not updated with id)
     List = ets:match(device_table, {device, '$1', Address, Unit, '_', '_'}),
     ets:insert(device_table, #device{id=get_id(List),
@@ -314,10 +326,10 @@ details({device, {action, Action}, {address, Address}, {unit, Unit}, {group_bit,
 				     unit=Unit,
 				     state=Action,
 				     last_state_change_time=erlang:now()}),
-    ok;
+    Cnt + 1;
 
-details(_) ->
-    ok.
+details(_, Cnt) ->
+    Cnt.
 
 terminate(Reason, _State) ->
     error_logger:error_msg("~p ~p: ~p~n ", [erlang:localtime(), ?MODULE, Reason]),    
