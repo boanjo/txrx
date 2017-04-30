@@ -542,16 +542,13 @@ void DecodeRain()
   // grab the channel
   channel = GetNibble(5);
   
+  // Rolling Code
+  byte rolling_code = GetNibble(6);
+  rolling_code = rolling_code << 4;
+  rolling_code |= GetNibble(7);
+
   // grab the Flags to check battery bit (0x4 == BAD)
   flags = GetNibble(8);
- 
-  // Check bit 0x8 which is normally low. Then the rolling code nibbles are 
-  // replaced with a high resolution battery indicator (0-100%)
-  if((flags & 0x8) == 0x8) {
-    battery = GetNibble(6);
-    battery = battery << 4;
-    battery |= GetNibble(7);
-  }
 
   double total = 0;
   for (int x = 0; x < 6; x++)
@@ -569,36 +566,21 @@ void DecodeRain()
     rate += GetNibble(12-x);
   }
   //rain_rate = total * .01;
-  rain_bucket_tips = rate;
+  rain_rate = rate * 0.254;
 
-  // The rate is just number of raw bucket tips
-  // total rain is reported as 0.001" and one tip is 0.01"
-  // I.e. we can check the rate * 10 and compare with total
-  // for extra safety 
-  if((rate * 10) == total)
-  {
-    Serial.print("{rain, {ch,");
-    Serial.print(channel);
-    Serial.print("}, {total,");
-    Serial.print(rain_total);
-    Serial.print("}, {tips,");
-    Serial.print(rain_bucket_tips);
-    Serial.print("},{battery,");
-    Serial.print(battery);
-    Serial.println("}}.");
-  }
-  else
-  {
-    Serial.print("{warning, rain_value_error, {ch,");
-    Serial.print(channel);
-    Serial.print("}, {total,");
-    Serial.print(total);
-    Serial.print("}, {rate,");
-    Serial.print(rate);
-    Serial.print("},{battery,");
-    Serial.print(battery);
-    Serial.println("}}.");
-  }
+  Serial.print("{rain, {ch,");
+  Serial.print(channel);
+  Serial.print("}, {total,");
+  Serial.print(rain_total);
+  Serial.print("}, {rate,");
+  Serial.print(rain_rate);
+  Serial.print("},{battery,");
+  if((flags & 0x4) == 0x4)
+    Serial.print("low");
+  else 
+    Serial.print("good");
+  Serial.println("}}.");
+  
   digitalWrite(LED_RAIN, LOW);
 }
 
@@ -607,7 +589,8 @@ bool ValidCRC(int CRCPos)
 {
   bool ret = false;
   int start = 1;
-  byte check = GetNibble(CRCPos);
+  byte crc_nibbles = GetNibble(CRCPos);
+  crc_nibbles = crc_nibbles | (GetNibble(CRCPos+1) << 4);
   byte crc = 0;
   for (int x = start; x < CRCPos; x++)
   {
@@ -615,11 +598,9 @@ bool ValidCRC(int CRCPos)
     crc += test;
   }
 
-  int tmp = ((byte)(crc) & (byte)(0x0f));
-
-  if (tmp == check)
+  if(crc == crc_nibbles)
     ret = true;
-
+  
   return ret;
 }
 
