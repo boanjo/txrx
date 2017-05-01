@@ -324,7 +324,7 @@ details({humidity, {ch, Channel}, {value, Value}, {battery, Battery}}, Cnt) ->
     update_sensor(140+Channel, Value, Battery, true),
     Cnt + 1;
 
-details({rain, {ch, Channel}, {total, Value}, {tips, _Tips}, {battery, Battery}}, Cnt) ->
+details({rain, {ch, Channel}, {total, Value}, {rate, _Rate}, {battery, Battery}}, Cnt) ->
     update_sensor(150+Channel, Value, Battery, true),
     Cnt + 1;
 
