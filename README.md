@@ -24,12 +24,12 @@ If you want to use the txrx as a part of your homeautomation project i recommend
 
 Below are some pictures from the prototyping, enjoy!
 
-![Schematic of txrx hardware](https://github.com/epkboan/boanjo.github.io/blob/master/txrx_schem.png?raw=true "Schematic: txrx Hardware")
+![Schematic of txrx hardware](https://github.com/boanjo/boanjo.github.io/blob/master/txrx_schem.png?raw=true "Schematic: txrx Hardware")
 
 
 
-![Wiring of txrx hardware](https://github.com/epkboan/boanjo.github.io/blob/master/txrx_bb.png?raw=true "Breadboard: txrx Hardware")
+![Wiring of txrx hardware](https://github.com/boanjo/boanjo.github.io/blob/master/txrx_bb.png?raw=true "Breadboard: txrx Hardware")
 
 ### Screenshot of the homeautomation control center
-![ss1](https://github.com/epkboan/boanjo.github.io/blob/master/homeautomation_1.JPG "The control centre")
+![ss1](https://github.com/boanjo/boanjo.github.io/blob/master/homeautomation_1.JPG "The control centre")
 
